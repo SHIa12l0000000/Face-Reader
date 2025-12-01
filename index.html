@@ -1,24 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Age, Gender & Emotion Scanner</title>
 
-  <!-- face-api.js CDN -->
+  <!-- face-api.js -->
   <script src="https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"></script>
 
   <style>
     body {
-      font-family: sans-serif;
       background: #111;
       color: #eee;
       text-align: center;
+      font-family: sans-serif;
       padding: 20px;
-    }
-    #videoContainer {
-      position: relative;
-      display: inline-block;
     }
     video, canvas {
       width: 100%;
@@ -26,8 +22,8 @@
       border-radius: 12px;
     }
     button {
-      margin: 10px;
       padding: 10px 20px;
+      margin: 10px;
       border: none;
       border-radius: 6px;
       font-size: 16px;
@@ -42,15 +38,13 @@
   <h1>Age, Gender & Emotion Scanner</h1>
   <p id="status">Loading models...</p>
 
-  <div id="videoContainer">
+  <div>
     <video id="video" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
   </div>
 
-  <div>
-    <button id="startBtn">Start</button>
-    <button id="stopBtn">Stop</button>
-  </div>
+  <button id="startBtn">Start</button>
+  <button id="stopBtn">Stop</button>
 
   <script>
     const video = document.getElementById("video");
@@ -58,13 +52,14 @@
     const statusEl = document.getElementById("status");
 
     let stream = null;
-    let detecting = false;
     let interval = null;
 
-    const MODEL_URL = "./models"; // Put your model files folder here
+    // CDN-hosted model folder:
+    const MODEL_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights/";
 
     async function loadModels() {
       statusEl.textContent = "Loading models...";
+
       await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
       await faceapi.nets.ageGenderNet.loadFromUri(MODEL_URL);
       await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
@@ -78,75 +73,69 @@
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
         video.srcObject = stream;
         await video.play();
-
-        detecting = true;
         statusEl.textContent = "Camera started.";
-        startDetectionLoop();
-      } catch (err) {
-        statusEl.textContent = "Camera error: " + err;
+
+        startDetection();
+      } catch (e) {
+        statusEl.textContent = "Camera error: " + e;
       }
     }
 
     function stopCamera() {
-      detecting = false;
       clearInterval(interval);
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-        stream = null;
-      }
+      if (stream) stream.getTracks().forEach(t => t.stop());
       statusEl.textContent = "Camera stopped.";
     }
 
-    function startDetectionLoop() {
+    function startDetection() {
       interval = setInterval(async () => {
-        if (!detecting) return;
         if (video.readyState !== 4) return;
 
-        const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
-
         const detections = await faceapi
-          .detectAllFaces(video, options)
-          .withFaceLandmarks()
+          .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
           .withAgeAndGender()
-          .withFaceExpressions();
+          .withFaceExpressions()
+          .withFaceLandmarks();
 
-        drawResults(detections);
+        draw(detections);
       }, 200);
     }
 
-    function drawResults(detections) {
+    function draw(results) {
       const ctx = overlay.getContext("2d");
       overlay.width = video.videoWidth;
       overlay.height = video.videoHeight;
+
       ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-      detections.forEach(det => {
-        const { age, gender, genderProbability } = det;
+      results.forEach(det => {
         const box = det.detection.box;
 
-        let topExp = "neutral";
-        let expScore = 0;
-        for (const [exp, score] of Object.entries(det.expressions)) {
-          if (score > expScore) {
-            expScore = score;
-            topExp = exp;
-          }
-        }
-
-        const label = `Age: ${Math.round(age)} | ${gender} (${(genderProbability * 100).toFixed(0)}%) | ${topExp}`;
-
+        // Box
         ctx.strokeStyle = "#00FF00";
         ctx.lineWidth = 2;
         ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-        ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.font = "16px sans-serif";
+        // Find top emotion
+        let topExp = "neutral";
+        let topScore = 0;
+        for (const [name, score] of Object.entries(det.expressions)) {
+          if (score > topScore) {
+            topScore = score;
+            topExp = name;
+          }
+        }
 
-        const textWidth = ctx.measureText(label).width;
-        ctx.fillRect(box.x - 2, box.y - 20, textWidth + 6, 20);
+        const label =
+          `Age: ${Math.round(det.age)} | ` +
+          `${det.gender} | ` +
+          `${topExp}`;
+
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(box.x, box.y - 20, ctx.measureText(label).width + 10, 20);
 
         ctx.fillStyle = "white";
-        ctx.fillText(label, box.x + 2, box.y - 5);
+        ctx.fillText(label, box.x + 5, box.y - 5);
       });
     }
 
